@@ -21,6 +21,10 @@ struct Axis {
   uint16_t axis_6;
   uint16_t axis_7;
   uint16_t axis_8;
+  uint16_t spare1;
+  uint16_t spare2;
+  uint16_t spare3;
+  uint16_t spare4;
 };
 Axis axis_x;
 
@@ -28,9 +32,9 @@ struct Gesture {
   float angle;
   float omega;
   int speed;
-  int P;
-  int I;
-  int D;
+  float P;
+  float I;
+  float D;
   uint16_t null_1;
   uint16_t null_2;
 };
@@ -44,12 +48,13 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("SainSmartProduct");
   lcd.setCursor(0, 1);
-  lcd.print("UprightRover 3.0");
+  lcd.print("Remote V 1.0");
 
   Mirf.spi = &MirfHardwareSpi;
   Mirf.init();
   Mirf.setRADDR((byte *)"clie1");
-  Mirf.payload = 16;
+  //Mirf.payload = sizeof(struct Gesture);
+  Mirf.payload = 24;
   Mirf.config();
 
   delay(4000);
@@ -110,40 +115,40 @@ void loop() {
   {
     lcd.setCursor(0, 0);
     lcd.print("Parameter:P=");
-    if (data.P < 1000) {
-      lcd.print('0');
-      if (data.P < 100) {
-        lcd.print('0');
-        if (data.P < 10) {
-          lcd.print('0');
-        }
-      }
-    }
+    //if (data.P < 1000) {
+    // lcd.print('0');
+    //  if (data.P < 100) {
+    //    lcd.print('0');
+    //    if (data.P < 10) {
+    //      lcd.print('0');
+    //    }
+    //  }
+    //}
     lcd.print(data.P);
     /**********************************************************************************************************/
     lcd.setCursor(0, 1);
     lcd.print(" I=");
-    if (data.I < 1000) {
-      lcd.print('0');
-      if (data.I < 100) {
-        lcd.print('0');
-        if (data.I < 10) {
-          lcd.print('0');
-        }
-      }
-    }
+    //if (data.I < 1000) {
+    //  lcd.print('0');
+    //  if (data.I < 100) {
+     //   lcd.print('0');
+     //   if (data.I < 10) {
+    //      lcd.print('0');
+    //    }
+    //  }
+    //}
     lcd.print(data.I);
     /**********************************************************************************************************/
     lcd.print("  D=");
-    if (data.D < 1000) {
-      lcd.print('0');
-      if (data.D < 100) {
-        lcd.print('0');
-        if (data.D < 10) {
-          lcd.print('0');
-        }
-      }
-    }
+    //if (data.D < 1000) {
+    //  lcd.print('0');
+    // if (data.D < 100) {
+    //    lcd.print('0');
+    //    if (data.D < 10) {
+    //      lcd.print('0');
+    //    }
+    //  }
+    //}
     lcd.print(data.D);
   }
   /**********************************************************************************************************/

@@ -59,6 +59,10 @@ struct IncomingData  // Data from remote control
   uint16_t axis_6;
   uint16_t axis_7;
   uint16_t axis_8;
+  uint16_t spare1;
+  uint16_t spare2;
+  uint16_t spare3;
+  uint16_t spare4;
 };
 
 IncomingData incoming;
@@ -71,9 +75,9 @@ struct OutgoingData  // Datas send back to remote control
   float angle;
   float omega;
   int speed;
-  uint16_t P;
-  uint16_t I;
-  uint16_t D;
+  float P;
+  float I;
+  float D;
   uint16_t null_1;
   uint16_t null_2;
 };
@@ -143,8 +147,10 @@ void setup()
   Mirf.spi = &MirfHardwareSpi;  
   Mirf.init();
   Mirf.setRADDR((byte *)"serv1");
-  Mirf.payload = 16;                    // Size of data packet
+  Mirf.payload = 24;                    // Size of received data packet
   Mirf.config();
+  Serial.println("Initialized");
+  
 }
 
 void loop()
@@ -185,7 +191,7 @@ void Receive()
   {
     // Read datas from the romote controller
     Mirf.getData((byte *) &incoming);
-    /*
+    
     Serial.print("axis_1=");
     Serial.print(incoming.axis_1);
     Serial.print("  axis_2=");
@@ -202,7 +208,7 @@ void Receive()
     Serial.print(incoming.axis_7);
     Serial.print("  axis_8=");
     Serial.println(incoming.axis_8);
-    */
+    
     Mirf.setTADDR((byte *)"clie1");
     Mirf.send((byte *) &outgoing);  // Send data back to the controller
     
@@ -250,15 +256,21 @@ void Receive()
     incoming.axis_1 = incoming.axis_2 = 500;
   }
   
+  // Read the analog potentiometers and convert the values to kp, ki, kd
+  
+  kp = float(analogRead(A0))/10.0;
+  ki = float(analogRead(A1))/100.0;
+  kd = float(analogRead(A2))/100.0;
+  
   // Put the structure values into the structure (data)
   //   for transmission back to the controller
   
   outgoing.omega = omega;
   outgoing.angle = Angle_Filtered;
   outgoing.speed = Sum_Right;
-  outgoing.P = analogRead(A0);
-  outgoing.I = analogRead(A1);
-  outgoing.D = analogRead(A2);
+  outgoing.P = kp; 
+  outgoing.I = ki;
+  outgoing.D = kd;
 }
 
 
@@ -304,9 +316,9 @@ void Filter()
 
 void myPID()
 {
-  kp = 22.000; 
-  ki = 0;
-  kd = 1.60;
+  //kp = 22.000; 
+  //ki = 0;
+  //kd = 1.60;
   // Calculating the output values using the gesture values and the PID values.
   error = Angle_Filtered;
   errSum += error;
