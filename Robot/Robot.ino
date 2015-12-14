@@ -29,9 +29,11 @@ float Angle_Delta, Angle_Recursive, Angle_Confidence;
 
 float kp, ki, kd;
 float Angle_Raw, Angle_Filtered, omega, dt;
-float Turn_Speed = 0, Run_Speed = 0;
+float Turn_Speed = 0;    // Joystick X value mapped to -100 to +100 with deadband
+float Run_Speed = 0;     // Joystick Y value mapped to -120 to +120 with deadband
 float LOutput, ROutput, Input, Output;
-float PValue, IValue, DValue;
+float AngleTarget = 0.0;   // Desired angle in degrees. 
+//float PValue, IValue, DValue;
 
 unsigned long preTime, lastTime;
 float errSum, dErr, error, lastErr;
@@ -106,6 +108,7 @@ void setup()
   accelgyro.initialize();
   for (int i = 0; i < 200; i++) // Looping 200 times to get the real gesture when starting
   {
+    GetValues();
     Filter();
   }
   if (abs(Angle_Filtered) < 45)  // Start to work after cleaning data
@@ -158,9 +161,14 @@ void loop()
   while (1)
   {
     Receive();
+    
+    // Only do this stuff if at least 10 milliseconds has passed since last time
+    
     if ((micros() - lastTime) > 10000)
     {
+      GetValues();
       Filter();
+      
       // If angle > 45 or < -45 then stop the robot
       if (abs(Angle_Filtered) < 45)
       {
@@ -273,13 +281,12 @@ void Receive()
   outgoing.D = kd;
 }
 
-
 //******************************************************************
-//  Filter 
+//  GetValues 
 //     - get data from the accelerometer/gyro
 //     - Calculate the angle and angular speed
 
-void Filter()
+void GetValues()
 {
   // Read raw data from the accelerometer/gyro
   
@@ -299,6 +306,16 @@ void Filter()
   timeChange = now - preTime;
   preTime = now;
   dt = timeChange * 0.000001;     // dt is the elapsed time in seconds
+}
+
+
+//******************************************************************
+//  Filter 
+//     - get data from the accelerometer/gyro
+//     - Calculate the angle and angular speed
+
+void Filter()
+{
   
   // Change in raw angle
   
@@ -313,6 +330,13 @@ void Filter()
   
   Angle_Filtered = Angle_Confidence * dt + Angle_Filtered;
 }
+
+
+
+void DonsPID(){
+  
+}
+
 
 void myPID()
 {
