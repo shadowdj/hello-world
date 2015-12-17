@@ -21,17 +21,19 @@ int16_t gx, gy, gz;        // X, Y, Z gyro values          (rate of change)
 #define Angle_offset 0  // Offset of the accelerator
 
 
+
 #define RMotor_offset 0  // The offset of the Motor
 #define LMotor_offset 0  // The offset of the Motor
 #define pi 3.14159
 
 float Angle_Delta, Angle_Recursive, Angle_Confidence;
 
-float kp, ki, kd;
+float kp, ki, kd;     // PID constants
 float Angle_Raw, Angle_Filtered, omega, dt;
 float Turn_Speed = 0;    // Joystick X value mapped to -100 to +100 with deadband
 float Run_Speed = 0;     // Joystick Y value mapped to -120 to +120 with deadband
 float LOutput, ROutput, Input, Output;
+float AngleVertical = 0.0; // Angle at which robot is stationary upright
 float AngleTarget = 0.0;   // Desired angle in degrees. 
 //float PValue, IValue, DValue;
 
@@ -172,15 +174,19 @@ void loop()
       // If angle > 45 or < -45 then stop the robot
       if (abs(Angle_Filtered) < 45)
       {
-        myPID();
+        //myPID();
+        DonsPID();
         PWMControl();
       }
       else
       {
-        digitalWrite(TN1, HIGH);
-        digitalWrite(TN2, HIGH);
-        digitalWrite(TN3, HIGH);
-        digitalWrite(TN4, HIGH);
+          LOutput = 0;
+          ROutput = 0;
+          PWMControl();
+ //       digitalWrite(TN1, HIGH);
+ //       digitalWrite(TN2, HIGH);
+ //       digitalWrite(TN3, HIGH);
+ //       digitalWrite(TN4, HIGH);
       }
       lastTime = micros();
     }
@@ -332,8 +338,28 @@ void Filter()
 }
 
 
+//******************************************************************
+//  Don's PID 
+//     - Use the desired angle (AngleTarget) and the current angle (Angle_Raw)
+//        to feed the P part of PID
+//     - Use the gyro value (omega) to feed the D part of PID
+//     - With P and D determine wheel speed (common to both wheels)
+//        to balance the robot at AngleTarget
+//     - Adjust right and left wheel speed based upon
+//        1. The X axis of the joystick (desired turn)
+//        2. Accumulated error of left/right encoders
+//            to keep the robot pointed straight
+//     - Feed these values to the motors (LOutput and ROutput)
+
 
 void DonsPID(){
+  Output = kp * (AngleTarget - Angle_Raw) + kd * (omega);
+  noInterrupts();
+  ROutput = Output;
+  LOutput = Output;
+  interrupts();
+  
+  
   
 }
 
