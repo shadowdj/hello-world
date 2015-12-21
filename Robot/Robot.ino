@@ -100,10 +100,10 @@ void setup()
 
   // Initialize the timers
   
-  TCCR3A = _BV(COM3A1) | _BV(WGM31) | _BV(WGM30); // TIMER_3 @1K Hz, fast pwm
-  TCCR3B = _BV(CS31);
-  TCCR0A = _BV(COM0B1) | _BV(WGM01) | _BV(WGM00); // TIMER_0 @1K Hz, fast pwm
-  TCCR0B = _BV(CS01) | _BV(CS00);
+  //TCCR3A = _BV(COM3A1) | _BV(WGM31) | _BV(WGM30); // TIMER_3 @1K Hz, fast pwm
+ // TCCR3B = _BV(CS31);
+  //TCCR0A = _BV(COM0B1) | _BV(WGM01) | _BV(WGM00); // TIMER_0 @1K Hz, fast pwm
+  //TCCR0B = _BV(CS01) | _BV(CS00);
 
   /* If the robot was turned on with the angle over 45(-45) degrees,the wheels
    will not spin until the robot is in right position. */
@@ -118,7 +118,7 @@ void setup()
     omega = Angle_Raw = Angle_Filtered = 0;
     Output = error = errSum = dErr = 0;
     Filter();
-    myPID();
+    //myPID();
   }
   
   // Left wheel H-Bridge
@@ -180,9 +180,10 @@ void loop()
       }
       else
       {
+          Serial.println("Tilt");
           LOutput = 0;
           ROutput = 0;
-          PWMControl();
+          //PWMControl();
  //       digitalWrite(TN1, HIGH);
  //       digitalWrite(TN2, HIGH);
  //       digitalWrite(TN3, HIGH);
@@ -223,22 +224,23 @@ void Receive()
     Serial.print("  axis_8=");
     Serial.println(incoming.axis_8);
     
+    
     Mirf.setTADDR((byte *)"clie1");
     Mirf.send((byte *) &outgoing);  // Send data back to the controller
     
     //_______________________________________________________
-    //  Axis 1 is right joystick Y axis (Forward/Back)
+    //  Axis 2 is right joystick X axis (Left/Right)
     //
     //  If abs(value) < 20 set to 0
     //  Else map input to -100 to +100
     
-    if (incoming.axis_1 >= 520) // Y axis datas from joystick_1
+    if (incoming.axis_2 >= 520) // Y axis datas from joystick_1
     {
-      Turn_Speed = map(incoming.axis_1, 520, 1023, 0, 120);
+      Turn_Speed = map(incoming.axis_2, 520, 1023, 0, 120);
     }
-    else if (incoming.axis_1 <= 480)
+    else if (incoming.axis_2 <= 480)
     {
-      Turn_Speed = map(incoming.axis_1, 480 , 0, 0, -120);
+      Turn_Speed = map(incoming.axis_2, 480 , 0, 0, -120);
     }
     else
     {
@@ -247,17 +249,18 @@ void Receive()
 
     //_______________________________________________________
     //  Axis 2 is right joystick X axis (Left/Right)
+    //  Axis 1 is right joystick Y axis (Forward/Back)
     //
     //  If abs(value) < 20 set to 0
     //  Else map input to -100 to +100
 
-    if (incoming.axis_2 >= 520) // X axis datas from joystick_1
+    if (incoming.axis_1 >= 520) // X axis datas from joystick_1
     {
-      Run_Speed = map(incoming.axis_2, 520, 1023, 0, 100);
+      Run_Speed = map(incoming.axis_1, 520, 1023, 0, 100);
     }
-    else if (incoming.axis_2 <= 480)
+    else if (incoming.axis_1 <= 480)
     {
-      Run_Speed = map(incoming.axis_2, 480, 0, 0, -100);
+      Run_Speed = map(incoming.axis_1, 480, 0, 0, -100);
     }
     else
     {
@@ -281,7 +284,7 @@ void Receive()
   
   outgoing.omega = omega;
   outgoing.angle = Angle_Filtered;
-  outgoing.speed = Sum_Right;
+  outgoing.speed = (int)ROutput;
   outgoing.P = kp; 
   outgoing.I = ki;
   outgoing.D = kd;
@@ -354,6 +357,12 @@ void Filter()
 
 void DonsPID(){
   Output = kp * (AngleTarget - Angle_Raw) + kd * (omega);
+  //ROutput = Run_Speed *  2;
+  
+  Output = Run_Speed * 2;
+  //ROutput = Output;
+  //LOutput = Output;
+  
   noInterrupts();
   ROutput = Output;
   LOutput = Output;
@@ -366,11 +375,9 @@ void DonsPID(){
 
 void myPID()
 {
-  //kp = 22.000; 
-  //ki = 0;
-  //kd = 1.60;
+  Serial.println("myPID");
   // Calculating the output values using the gesture values and the PID values.
-  error = Angle_Filtered;
+/*  error = Angle_Filtered;
   errSum += error;
   dErr = error - lastErr;
   Output = kp * error + ki * errSum + kd * omega;
@@ -396,6 +403,7 @@ void myPID()
   ROutput = Output + Turn_Speed;
   LOutput = Output - Turn_Speed;
   interrupts();
+  */
 }
 
 
@@ -441,13 +449,16 @@ void PWMControl()
     OCR0B = 0;
   }
   
+  analogWrite(ENA, abs(ROutput));
+  analogWrite(ENB, abs(LOutput));
+  
   //----------------------------------------------------------------
   // Duty cycle for the left motor is (4 * LOutput) / 1024 
   //    1023 is the full on value
   //
   // Timer/Counter3 is a general purpose 16-bit Timer/Counter module
   // 
-  OCR3A = min(1023, (abs(LOutput * 4) + LMotor_offset * 4));
+  //OCR3A = min(1023, (abs(LOutput * 4) + LMotor_offset * 4));
   
   //----------------------------------------------------------------
   // Duty cycle for the right motor is (ROutput) / 256 
@@ -455,7 +466,7 @@ void PWMControl()
   //
   // Timer/Counter0 is a general purpose 8-bit Timer/Counter module
   //
-  OCR0B = min(255, (abs(ROutput) + RMotor_offset)); 
+  //OCR0B = min(255, (abs(ROutput) + RMotor_offset)); 
 }
 
 //-------------------------------------------------------------
