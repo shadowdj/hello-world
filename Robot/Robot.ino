@@ -7,88 +7,60 @@
 #include <nRF24L01.h>
 #include <MirfHardwareSpiDriver.h>
 #include <I2Cdev.h>
-#include <MPU6050.h>                  // IMU
-
-//   Set up and initialize the MPU6050 (accelerometer and gyros)
+#include <MPU6050.h>
 
 MPU6050 accelgyro;
 MPU6050 initialize;
-int16_t ax, ay, az;        // X, Y, Z accelerometer values (position)
-int16_t gx, gy, gz;        // X, Y, Z gyro values          (rate of change)
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
 
-#define Gry_offset 0    // Offset of the gyro
-#define Gyr_Gain 131    // Gain of the gyro (131 counts per 1 degree per second)
-#define Angle_offset 0  // Offset of the accelerator
-
+#define Gry_offset 0  //The offset of the gyro
+#define Gyr_Gain 131
+#define Angle_offset 0  // The offset of the accelerator
 #define RMotor_offset 0  // The offset of the Motor
 #define LMotor_offset 0  // The offset of the Motor
 #define pi 3.14159
 
-// Define the points where each axis of the remote is centered
-
-#define Axis1_Center  522
-#define Axis2_Center  493
-#define Axis3_Center  518
-#define Axis4_Center  520
-
-// Deadband is the area around center of joystick which is treated as 0
-
-#define Deadband  3
-
-// Thresholds at which the wheels start to move
-
-#define RightThreshold  35
-#define LeftThreshold   50
-
 float Angle_Delta, Angle_Recursive, Angle_Confidence;
 
-float kp, ki, kd;     // PID constants
-float Angle_Raw, Angle_Filtered;
-float Gyro_Raw, Gyro_Filtered;
-float omega, dt;
-float Turn_Speed = 0;    // Joystick X value mapped to -100 to +100 with deadband
-float Run_Speed = 0;     // Joystick Y value mapped to -120 to +120 with deadband
-int   LOutput, ROutput;
-float Input, Output;
-float Output_Filtered;
-float AngleVertical = 3.0; // Angle at which robot is stationary upright
-float AngleTarget = 0.0;   // Desired angle in degrees.
-int   outputindex = 0;
-
+float kp, ki, kd;
+float Angle_Raw, Angle_Filtered, omega, dt;
+float Angle_Vertical = 2.0;
+float Turn_Speed = 0, Run_Speed = 0;
+float LOutput, ROutput, Input, Output;
 
 unsigned long preTime, lastTime;
 float errSum, dErr, error, lastErr;
 int timeChange;
 
-//int filtercount = 0;
+long volatile Sum_Right, Sum_Right_Temp = 150, Sum_Left, Sum_Left_Temp = 150, Distance, Distance_Right, Distance_Left, Speed;
 
 
-long Sum_Right, Sum_Right_Temp = 150, Sum_Left, Sum_Left_Temp = 150, Distance, Distance_Right, Distance_Left, Speed;
-
-int TN1 = 23;    // Left wheel H-Bridge
-int TN2 = 22;    // Left wheel H-Bridge
+int TN1 = 23;
+int TN2 = 22;
 int ENA = 5;
-int TN3 = 24;    // Right wheel H-Bridge
-int TN4 = 25;    // Right wheel H-Bridge
+int TN3 = 24;
+int TN4 = 25;
 int ENB = 4;
+
 
 // ------------------------------------
 // Data structure - Controller to Robot
 // ------------------------------------
 struct IncomingData  // Data from remote control
 {
-  uint16_t axis_1;
-  uint16_t axis_2;
-  uint16_t axis_3;
-  uint16_t axis_4;
-  uint16_t axis_5;
-  uint16_t axis_6;
-  uint16_t axis_7;
-  uint16_t axis_8;
-  uint16_t spare1;
-  uint16_t spare2;
-  uint16_t spare3;
-  uint16_t spare4;
+  int axis_1;
+  int axis_2;
+  int axis_3;
+  int axis_4;
+  int axis_5;
+  int axis_6;
+  int axis_7;
+  int axis_8;
+  int spare1;
+  int spare2;
+  int spare3;
+  int spare4;
 };
 
 // Instantiate the structure
@@ -116,23 +88,21 @@ struct OutgoingData  // Datas send back to remote control
 OutgoingData outgoing;
 
 
-
-//***************************************************************************
-//  setup - Set up the code
-//***************************************************************************
 void setup()
 {
-  Serial.begin(115200);      // Set up serial port for debug
-  
+  Serial.begin(115200);
   Wire.begin();
 
+  TCCR3A = _BV(COM3A1) | _BV(WGM31) | _BV(WGM30); // TIMER_3 @1K Hz, fast pwm
+  TCCR3B = _BV(CS31);
+  TCCR0A = _BV(COM0B1) | _BV(WGM01) | _BV(WGM00); // TIMER_0 @1K Hz, fast pwm
+  TCCR0B = _BV(CS01) | _BV(CS00);
 
   /* If the robot was turned on with the angle over 45(-45) degrees,the wheels
    will not spin until the robot is in right position. */
   accelgyro.initialize();
   for (int i = 0; i < 200; i++) // Looping 200 times to get the real gesture when starting
   {
-    GetValues();
     Filter();
   }
   if (abs(Angle_Filtered) < 45)  // Start to work after cleaning data
@@ -140,8 +110,9 @@ void setup()
     omega = Angle_Raw = Angle_Filtered = 0;
     Output = error = errSum = dErr = 0;
     Filter();
+    myPID();
   }
-  
+    
   // Left wheel H-Bridge
   
   pinMode(TN1, OUTPUT);
@@ -152,124 +123,126 @@ void setup()
   pinMode(TN3, OUTPUT);
   pinMode(TN4, OUTPUT);
   
+  // Right wheel PWM
+  
   pinMode(ENA, OUTPUT);
   
+  // Left wheel PWM
+  
   pinMode(ENB, OUTPUT);
+  
   pinMode(18, INPUT);
   pinMode(2, INPUT);
+  pinMode(19, INPUT);
+  pinMode(3, INPUT);
+  
 
-  //  Set up the interrupt handlers for the Left and Right Shaft Encoders
-  //  Right encoder uses D19 (ISR4) for counts and D18 for direction
-  //  Left encoder uses D3 (ISR1) for counts and D2 for direction
-  
-  //attachInterrupt(4, RightEncoderISR, FALLING);
-  //attachInterrupt(1, LeftEncoderISR, FALLING);
-  
-  //---------------------------------------------
+  attachInterrupt(4, State_A, FALLING);
+  attachInterrupt(1, State_B, FALLING);
+
   // 24L01 initialization
-  
   Mirf.cePin = 53;
   Mirf.csnPin = 48;
-  Mirf.spi = &MirfHardwareSpi;  
+  Mirf.spi = &MirfHardwareSpi;
   Mirf.init();
   Mirf.setRADDR((byte *)"serv1");
-  Mirf.payload = 24;                    // Size of received data packet
+  Mirf.payload = 24;
   Mirf.config();
-  Serial.println("Initialized");
   
+    
 }
 
 void loop()
 {
+  // Test Program 
+  for (int i = 0; i < 255; i += 10)
+  {
+    LOutput = i;
+    ROutput = i;
+    PWMControl();
+    delay (1000);
+    Sum_Left = 0;
+    Sum_Right = 0;
+    delay (1000);
+    Serial.print("Speed = ");
+    Serial.print(i);
+    Serial.print(" Count = ");
+    Serial.print(Sum_Right);
+    Serial.print(" Count = ");
+    Serial.println(Sum_Left);
+  }
+  
   while (1)
   {
     Receive();
-    
-    // Only do this stuff if at least 10 milliseconds has passed since last time
-    
-    if ((millis() - lastTime) > 10)
+    if ((micros() - lastTime) > 10000)
     {
-      GetValues();
       Filter();
-      
       // If angle > 45 or < -45 then stop the robot
       if (abs(Angle_Filtered) < 45)
       {
-        DonsPID();
-        if ((outputindex % 1) == 0)
-        {
-          
-          PWMControl();
-        }
+        myPID();
+        PWMControl();
       }
       else
       {
-          Serial.println("Tilt");
-          LOutput = 0;
-          ROutput = 0;
-          PWMControl();
- //       digitalWrite(TN1, HIGH);
- //       digitalWrite(TN2, HIGH);
- //       digitalWrite(TN3, HIGH);
- //       digitalWrite(TN4, HIGH);
+        digitalWrite(TN1, HIGH);
+        digitalWrite(TN2, HIGH);
+        digitalWrite(TN3, HIGH);
+        digitalWrite(TN4, HIGH);
       }
-      lastTime = millis();
+      lastTime = micros();
     }
   }
 }
-//******************************************************************
-//  Receive 
-//     - get data from the controller
-//     - parse and scale the joystick values
-//     - set up and send data back to the controller
-
 
 void Receive()
 {
-  int temp; 
-  
-  
   if (!Mirf.isSending() && Mirf.dataReady())
   {
     // Read datas from the romote controller
     Mirf.getData((byte *) &incoming);
-    /*
-    Serial.print("axis_1=");
-    Serial.print(incoming.axis_1);
+    /*Serial.print("axis_1=");
+    Serial.print(axis_x.axis_1);
     Serial.print("  axis_2=");
-    Serial.print(incoming.axis_2);
+    Serial.print(axis_x.axis_2);
     Serial.print("  axis_3=");
-    Serial.print(incoming.axis_3);
+    Serial.print(axis_x.axis_3);
     Serial.print("  axis_4=");
-    Serial.print(incoming.axis_4);
+    Serial.print(axis_x.axis_4);
     Serial.print("  axis_5=");
-    Serial.print(incoming.axis_5);
+    Serial.print(axis_x.axis_5);
     Serial.print("  axis_6=");
-    Serial.print(incoming.axis_6);
+    Serial.print(axis_x.axis_6);
     Serial.print("  axis_7=");
-    Serial.print(incoming.axis_7);
+    Serial.print(axis_x.axis_7);
     Serial.print("  axis_8=");
-    Serial.println(incoming.axis_8);
-    */
-    
+    Serial.println(axis_x.axis_8);*/
+
     Mirf.setTADDR((byte *)"clie1");
-    Mirf.send((byte *) &outgoing);  // Send data back to the controller
+    Mirf.send((byte *) &outgoing);  // Send datas back to the controller
+
     
     //_______________________________________________________
     //  Axis 2 is right joystick X axis (Left/Right)
     //
-    //  If abs(value) < 20 set to 0
-    //  Else map input to -100 to +100
+    //  Else map input to -120 to +120
     
-    temp = incoming.axis_2;
-    temp = temp - Axis2_Center;
-    if (abs(temp) < Deadband)
+    Turn_Speed = map(incoming.axis_2, -530, 530, -120, 120);
+    /*
+    if (incoming.axis_2 >= 520) 
     {
-      temp = 0;
+      Turn_Speed = map(incoming.axis_2, 520, 1023, 0, 120);
     }
-    
-    Turn_Speed = (float)temp;
-    
+    else if (incoming.axis_2 <= 480)
+    {
+      Turn_Speed = map(incoming.axis_2, 480 , 0, 0, -120);
+    }
+    else
+    {
+      Turn_Speed = 0;
+    }
+    */
 
     //_______________________________________________________
     //  Axis 1 is right joystick Y axis (Forward/Back)
@@ -277,17 +250,29 @@ void Receive()
     //  If abs(value) < 20 set to 0
     //  Else map input to -100 to +100
 
-    temp = incoming.axis_1;
-    temp = temp - Axis1_Center;
-    if (abs(temp) < Deadband)
+    Run_Speed = map(incoming.axis_1, -530, 530, -100, 100);
+    /*
+    if (incoming.axis_1 >= 520) 
     {
-      temp = 0;
+      Run_Speed = map(incoming.axis_1, 520, 1023, 0, 100);
+    }
+    else if (incoming.axis_1 <= 480)
+    {
+      Run_Speed = map(incoming.axis_1, 480, 0, 0, -100);
+    }
+    else
+    {
+      Run_Speed = 0;
     }
     
-    Run_Speed = (float)temp;
+  */
   }
+  else
+  {
+    incoming.axis_1 = incoming.axis_2 = 0;
+  }
+  
 
-//      Run_Speed = map(incoming.axis_1, 520, 1023, 0, 100);
   
   // Read the analog potentiometers and convert the values to kp, ki, kd
   
@@ -300,213 +285,100 @@ void Receive()
   
   outgoing.omega = omega;
   outgoing.angle = Angle_Filtered;
-  outgoing.speed = (int)ROutput;
+  outgoing.speed = Output;
   outgoing.P = kp; 
-  outgoing.I = ki;
+  outgoing.I = Run_Speed;
   outgoing.D = kd;
-  
-  //Serial.print("kp = ");
-  //Serial.print(kp);
-  //Serial.print(" kd = ");
-  //Serial.println(kd);
 }
 
-//******************************************************************
-//  GetValues 
-//     - get data from the accelerometer/gyro
-//     - Calculate the angle and angular speed
-
-void GetValues()
+void Filter()
 {
-  // Read raw data from the accelerometer/gyro
-  
+  // Raw datas
   accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-  
-  // Calculate the angle (0 = upright) in degrees
-  
   Angle_Raw = (atan2(ay, az) * 180 / pi + Angle_offset);
-  
-  // Calculate the angular speed (gyro input) 
-  
+  Angle_Raw = Angle_Raw - Angle_Vertical;
   omega = gx / Gyr_Gain + Gry_offset;
-  
-  // Calculate the elapsed time since the last measurment
-  
+  // Filter datas to get the real gesture
   unsigned long now = micros();
   timeChange = now - preTime;
   preTime = now;
-  dt = timeChange * 0.000001;     // dt is the elapsed time in seconds
+  dt = timeChange * 0.000001;
+  Angle_Delta = (Angle_Raw - Angle_Filtered) * 0.64;
+  Angle_Recursive = Angle_Delta * dt + Angle_Recursive;
+  Angle_Confidence = Angle_Recursive + (Angle_Raw - Angle_Filtered) * 1.6 + omega;
+  Angle_Filtered = Angle_Confidence * dt + Angle_Filtered;
 }
 
-
-//******************************************************************
-//  Filter 
-//     - get data from the accelerometer/gyro
-//     - Calculate the angle and angular speed
-
-#define FILTERSIZE  5
-int   index = 0;
-float angleFilter[FILTERSIZE];
-float gyroFilter[FILTERSIZE];
-
-void Filter()
-{ 
-  float total = 0.0;
-  
-  angleFilter[index % FILTERSIZE] = Angle_Raw;
-  for (int i = 0; i < FILTERSIZE; i++)
-  {
-    total += angleFilter[i];
-  }
-  Angle_Filtered = total / (float)FILTERSIZE;
-  
-  total = 0.0;
-  gyroFilter[index % FILTERSIZE] = Gyro_Raw;
-  for (int i = 0; i < FILTERSIZE; i++)
-  {
-    total += gyroFilter[i];
-  }
-  Gyro_Filtered = total / (float)FILTERSIZE;\
-  
-  index++;
-}
-
-
-
-//******************************************************************
-//  Don's PID 
-//     - Use the desired angle (AngleTarget) and the current angle (Angle_Raw)
-//        to feed the P part of PID
-//     - Use the gyro value (omega) to feed the D part of PID
-//     - With P and D determine wheel speed (common to both wheels)
-//        to balance the robot at AngleTarget
-//     - Adjust right and left wheel speed based upon
-//        1. The X axis of the joystick (desired turn)
-//        2. Accumulated error of left/right encoders
-//            to keep the robot pointed straight
-//     - Feed these values to the motors (LOutput and ROutput)
-
-
-void DonsPID(){
-  
-  int turnbias;
-  
-  // First calculate the desired target angle based upon the position of the joystick
-  
-  AngleTarget = AngleVertical + Run_Speed * 0.1;
-  
-  // Next calculate the raw value needed to keep the robot balanced
-  //   at the desired target angle 
-  
-  Output = kp * (Angle_Raw - AngleTarget) + kd * (omega);
-  
-  // Next, calculate the bias based upon the right/left bias from the joystick
-
-  turnbias = (int) (Turn_Speed * .1);
-  
-  OutputFilter();
-  //Output = Run_Speed;
-  
+void myPID()
+{
+//  kp = 22.000; 
+//  ki = 0;
+//  kd = 1.60;
+  // Calculating the output values using the gesture values and the PID values.
+  error = Angle_Filtered;
+  errSum += error;
+  dErr = error - lastErr;
+  Output = kp * error + ki * errSum + kd * omega;
+  lastErr = error;
   noInterrupts();
-  ROutput = (int) (Output_Filtered * .55);
-  LOutput = (int) (Output_Filtered);
-  
-  //ROutput = (int)Output_Filtered + turnbias;
-  //LOutput = (int)Output_Filtered - turnbias;
-  interrupts();
-  
-  
-  
-}
-//******************************************************************
-//  Output Filter 
-//     - Filter and average the last N output values
-
-#define OUTPUTFILTERSIZE  5
-float outputFilter[OUTPUTFILTERSIZE];
-
-void OutputFilter()
-{ 
-  float total = 0.0;
-  
-  outputFilter[outputindex % OUTPUTFILTERSIZE] = Output;
-  for (int i = 0; i < OUTPUTFILTERSIZE; i++)
+  if(abs(Sum_Left - Sum_Left_Temp) > 300)
   {
-    total += outputFilter[i];
+    Sum_Left = Sum_Left_Temp;
   }
-  Output_Filtered = total / (float)OUTPUTFILTERSIZE;
-  
-  outputindex++;
+  if(abs(Sum_Right - Sum_Right_Temp) > 300)
+  {
+    Sum_Right = Sum_Right_Temp;
+  }
+  Speed = (Sum_Right + Sum_Left) / 2;
+  Distance += Speed + Run_Speed;
+  Distance = constrain(Distance, -8000, 8000);
+  Output += Speed * 2.4 + Distance * 0.025;
+  Sum_Right_Temp = Sum_Right;
+  Sum_Left_Temp = Sum_Right;
+  Sum_Right = 0;
+  Sum_Left = 0;
+
+  ROutput = Output + Turn_Speed;
+  LOutput = Output - Turn_Speed;
+  interrupts();
 }
-
-
-
-
-
-//-------------------------------------------------------------
-//  PWM Control  -  Set up the motor commands
-//
-//  LOutput is the desired speed of the left motor (-255 to +255)
-//  ROutput is the desired speed of the right motor (-255 to +255)
-//-------------------------------------------------------------
 
 void PWMControl()
 {
-  
-  int actualPWM;
-  
-  //-------------------------------------------------------------
-  //  Set the direction for the H-Bridge based upon the sign of
-  //    the desired speed; 
-  //  Cap the desired output at +/- 255
-
   if (LOutput > 0)
   {
     digitalWrite(TN1, HIGH);
     digitalWrite(TN2, LOW);
-    LOutput = min (255, LOutput);
   }
   else if (LOutput < 0)
   {
     digitalWrite(TN1, LOW);
     digitalWrite(TN2, HIGH);
-    LOutput = max (-255, LOutput);
-
   }
- 
- if (ROutput > 0)
+  else
+  {
+    OCR3A = 0;
+  }
+  if (ROutput > 0)
   {
     digitalWrite(TN3, HIGH);
     digitalWrite(TN4, LOW);
-    ROutput = min (255, ROutput);
   }
   else if (ROutput < 0)
   {
     digitalWrite(TN3, LOW);
     digitalWrite(TN4, HIGH);
-    ROutput = max (-255, ROutput);
   }
-  
-  // At this point, ROutput and LOutput are in the range -255 to +255
-  // Now we will scale these values to the range which actually moves
-  //   the wheels. 
-  
-  actualPWM = map(abs(ROutput), 0, 255, RightThreshold, 255);  
-  analogWrite(ENA, actualPWM);
-  
-  
-  actualPWM = map(abs(LOutput), 0, 255, LeftThreshold, 255);  
-  analogWrite(ENB, actualPWM);
-  
+  else
+  {
+    OCR0B = 0;
+  }
+  OCR3A = min(1023, (abs(LOutput * 4) + LMotor_offset * 4)); // Timer/Counter3 is a general purpose 16-bit Timer/Counter module
+  OCR0B = min(255, (abs(ROutput) + RMotor_offset)); // Timer/Counter0 is a general purpose 8-bit Timer/Counter module
 }
 
-//-------------------------------------------------------------
-//  RightEncoderISR  -  ISR for right shaft encoder
-//
-//     Digital Input 18 is the direction input from the encoder
-//-------------------------------------------------------------
 
-void RightEncoderISR()
+void State_A()
 {
   if (digitalRead(18))
   {
@@ -518,13 +390,7 @@ void RightEncoderISR()
   }
 }
 
-//-------------------------------------------------------------
-// LeftEncoderISR  -  ISR for left shaft encoder
-//
-//     Digital Input 2 is the direction input from the encoder
-//-------------------------------------------------------------
-
-void LeftEncoderISR()
+void State_B()
 {
   if (!digitalRead(2))
   {

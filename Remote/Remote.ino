@@ -12,19 +12,24 @@ LiquidCrystal_I2C lcd(0x3F, 16, 2);
 
 unsigned int Display_Counter, Button_Delay = 0;
 
+int Center_axis_1;
+int Center_axis_2;
+int Center_axis_3;
+int Center_axis_4;
+
 struct Axis {
-  uint16_t axis_1;
-  uint16_t axis_2;
-  uint16_t axis_3;
-  uint16_t axis_4;
-  uint16_t axis_5;
-  uint16_t axis_6;
-  uint16_t axis_7;
-  uint16_t axis_8;
-  uint16_t spare1;
-  uint16_t spare2;
-  uint16_t spare3;
-  uint16_t spare4;
+  int axis_1;
+  int axis_2;
+  int axis_3;
+  int axis_4;
+  int axis_5;
+  int axis_6;
+  int axis_7;
+  int axis_8;
+  int spare1;
+  int spare2;
+  int spare3;
+  int spare4;
 };
 Axis axis_x;
 
@@ -48,7 +53,7 @@ void setup() {
   lcd.setCursor(0, 0);
   lcd.print("SainSmartProduct");
   lcd.setCursor(0, 1);
-  lcd.print("Remote V 1.0");
+  lcd.print("Remote V 2.0");
 
   Mirf.spi = &MirfHardwareSpi;
   Mirf.init();
@@ -56,6 +61,12 @@ void setup() {
   //Mirf.payload = sizeof(struct Gesture);
   Mirf.payload = 24;
   Mirf.config();
+  
+  Center_axis_1 = analogRead(A0);
+  Center_axis_2 = analogRead(A1);
+  Center_axis_3 = analogRead(A2);
+  Center_axis_4 = analogRead(A3);
+
 
   delay(4000);
 }
@@ -63,11 +74,31 @@ void setup() {
 void loop() {
   unsigned long time = millis();
   /**********************************************************************************************************/
-  axis_x.axis_1 = analogRead(A0);
-  axis_x.axis_2 = analogRead(A1);
-  axis_x.axis_3 = analogRead(A2);
-  axis_x.axis_4 = analogRead(A3);
-
+  axis_x.axis_1 = analogRead(A0) - Center_axis_1;
+  axis_x.axis_2 = analogRead(A1) - Center_axis_2;
+  axis_x.axis_3 = analogRead(A2) - Center_axis_3;
+  axis_x.axis_4 = analogRead(A3) - Center_axis_4;
+  
+  if (abs(axis_x.axis_1) < 3)
+  {
+    axis_x.axis_1 = 0;
+  }
+  
+  if (abs(axis_x.axis_2) < 3)
+  {
+    axis_x.axis_2 = 0;
+  }
+  
+  if (abs(axis_x.axis_3) < 3)
+  {
+    axis_x.axis_3 = 0;
+  }
+  
+  if (abs(axis_x.axis_3) < 3)
+  {
+    axis_x.axis_4 = 0;
+  }
+  
   Mirf.setTADDR((byte *)"serv1");
   Mirf.send((byte *)&axis_x);
   while (Mirf.isSending()) {
